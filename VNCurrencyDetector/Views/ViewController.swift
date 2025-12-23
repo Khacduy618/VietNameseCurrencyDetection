@@ -234,16 +234,16 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             // 1. XỬ LÝ CHỈ SỐ LIVE (TỨC THỜI)
             // ====================================================
             // Ở đây KHÔNG chia trung bình, vì ta muốn biết frame này tốt hay xấu ngay lập tức
-            let livePercent = Int(min(conf, 1.0) * 100)
+            // let livePercent = Int(min(conf, 1.0))
             let rawName = self.moneyMapping[id] ?? id
             
             // Hiển thị Live
             if id == "00_background" {
-                 self.liveInfoLabel.text = "Live: Nền/Rác (\(livePercent)%)"
+                 self.liveInfoLabel.text = "Live: Nền"
                  self.liveInfoLabel.textColor = .gray
                  self.centerFocusView.layer.borderColor = UIColor.white.withAlphaComponent(0.5).cgColor
             } else {
-                 self.liveInfoLabel.text = "Live: \(rawName) (\(livePercent)%)"
+                 self.liveInfoLabel.text = "Live: \(rawName)"
                  let isReliable = conf > self.CONFIDENCE_THRESHOLD
                  self.liveInfoLabel.textColor = isReliable ? .green : .orange
                  self.centerFocusView.layer.borderColor = isReliable ? UIColor.green.cgColor : UIColor.yellow.cgColor
@@ -290,7 +290,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             if self.candidateCount >= self.STABILITY_FRAMES_REQUIRED {
                 
                 // [ĐÂY LÀ CHỖ BẠN CẦN]: TỔNG / SỐ LƯỢNG
-                let averageConf = self.candidateConfTotal / Float(self.candidateCount)
+                let averageConf = Float(self.candidateConfTotal) / Float(self.candidateCount)
                 
                 if id != self.currentStableID {
                     self.currentStableID = id
@@ -314,9 +314,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     // --- 6. XỬ LÝ KẾT QUẢ & ĐỌC ---
     func processFinalResult(id: String, conf: Float) {
         guard let textToSpeak = moneyMapping[id] else { return }
+        let percent = Int(conf * 10)
         
-        
-        resultLabel.text = "\(textToSpeak)"
+        resultLabel.text = "\(textToSpeak) - \(percent)%"
         
         // Màu sắc
         if ["1k", "2k", "5k"].contains(id) {
