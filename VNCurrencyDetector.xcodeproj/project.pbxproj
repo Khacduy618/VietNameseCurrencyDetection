@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		F59FB1352EDBED9D00BD8BFC /* VNCurrencyDetector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VNCurrencyDetector.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F59FB1572EDBFA4C00BD8BFC /* VNCurrencyDetector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VNCurrencyDetector.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -46,16 +46,8 @@
 			isa = PBXGroup;
 			children = (
 				F59FB1372EDBED9D00BD8BFC /* VNCurrencyDetector */,
-				F59FB1362EDBED9D00BD8BFC /* Products */,
+				F59FB1572EDBFA4C00BD8BFC /* VNCurrencyDetector.app */,
 			);
-			sourceTree = "<group>";
-		};
-		F59FB1362EDBED9D00BD8BFC /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				F59FB1352EDBED9D00BD8BFC /* VNCurrencyDetector.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -80,7 +72,7 @@
 			packageProductDependencies = (
 			);
 			productName = VNCurrencyDetector;
-			productReference = F59FB1352EDBED9D00BD8BFC /* VNCurrencyDetector.app */;
+			productReference = F59FB1572EDBFA4C00BD8BFC /* VNCurrencyDetector.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -108,7 +100,7 @@
 			mainGroup = F59FB12C2EDBED9D00BD8BFC;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = F59FB1362EDBED9D00BD8BFC /* Products */;
+			productRefGroup = F59FB12C2EDBED9D00BD8BFC;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -153,6 +145,7 @@
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -185,6 +178,7 @@
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
