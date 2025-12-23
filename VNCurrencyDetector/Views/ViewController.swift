@@ -3,7 +3,58 @@ import AVFoundation
 import Vision
 import CoreML
 
+
+
 class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate, AVSpeechSynthesizerDelegate {
+    
+    // 1. Khung ngắm
+    let centerFocusView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.layer.borderColor = UIColor.yellow.cgColor
+        v.layer.borderWidth = 2.0
+        v.layer.cornerRadius = 10
+        // Shadow
+        v.layer.shadowColor = UIColor.black.cgColor
+        v.layer.shadowOpacity = 0.5
+        v.layer.shadowOffset = CGSize(width: 0, height: 2)
+        v.layer.shadowRadius = 4
+        return v
+    }()
+    
+    // 2. Container chứa kết quả (Nền đen mờ)
+    let resultContainerView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        v.layer.cornerRadius = 15
+        v.clipsToBounds = true
+        return v
+    }()
+    
+    // 3. Thanh Loading (Stability)
+    let stabilityProgressView: UIProgressView = {
+        let pv = UIProgressView(progressViewStyle: .bar)
+        pv.progress = 0.0
+        pv.trackTintColor = .darkGray
+        pv.progressTintColor = .green
+        pv.layer.cornerRadius = 2
+        pv.clipsToBounds = true
+        return pv
+    }()
+    
+    // 4. Label Live Info
+    let liveInfoLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        lbl.textColor = UIColor.lightGray
+        lbl.text = "Waiting..."
+        lbl.textAlignment = .center
+        // Thêm background nhỏ cho dễ đọc
+        lbl.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        lbl.layer.cornerRadius = 4
+        lbl.clipsToBounds = true
+        return lbl
+    }()
 
     // --- 1. CẤU HÌNH & BIẾN ---
     var captureSession: AVCaptureSession!
@@ -79,6 +130,8 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         "200k": "Hai trăm nghìn",
         "500k": "Năm trăm nghìn"
     ]
+
+    
 
     // --- LIFECYCLE ---
     override func viewDidLoad() {
@@ -177,63 +230,82 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     // --- 5. LOGIC XỬ LÝ THÔNG MINH ---
     func handleFrameResult(id: String, conf: Float) {
         DispatchQueue.main.async {
+            // ====================================================
+            // 1. XỬ LÝ CHỈ SỐ LIVE (TỨC THỜI)
+            // ====================================================
+            // Ở đây KHÔNG chia trung bình, vì ta muốn biết frame này tốt hay xấu ngay lập tức
+            let livePercent = Int(min(conf, 1.0) * 100)
+            let rawName = self.moneyMapping[id] ?? id
             
-            // 1. LỌC RÁC: Nếu tin cậy thấp hoặc là Background
+            // Hiển thị Live
+            if id == "00_background" {
+                 self.liveInfoLabel.text = "Live: Nền/Rác (\(livePercent)%)"
+                 self.liveInfoLabel.textColor = .gray
+                 self.centerFocusView.layer.borderColor = UIColor.white.withAlphaComponent(0.5).cgColor
+            } else {
+                 self.liveInfoLabel.text = "Live: \(rawName) (\(livePercent)%)"
+                 let isReliable = conf > self.CONFIDENCE_THRESHOLD
+                 self.liveInfoLabel.textColor = isReliable ? .green : .orange
+                 self.centerFocusView.layer.borderColor = isReliable ? UIColor.green.cgColor : UIColor.yellow.cgColor
+            }
+
+            // ====================================================
+            // 2. TÍNH TOÁN TRUNG BÌNH CHO KẾT QUẢ CHỐT (STABLE)
+            // ====================================================
+            
+            // Lọc rác
             if id == "00_background" || conf < self.CONFIDENCE_THRESHOLD {
-                // Reset ứng cử viên hiện tại
                 self.candidateID = nil
                 self.candidateCount = 0
-                self.candidateConfTotal = 0.0
+                self.candidateConfTotal = 0.0 // Reset tổng
+                self.stabilityProgressView.progress = 0.0
                 
-                // Đếm background để reset màn hình
                 self.backgroundCount += 1
                 if self.backgroundCount > self.RESET_BG_FRAMES {
                     self.currentStableID = nil
-                    self.resultLabel.text = "Sẵn sàng..."
+                    self.resultLabel.text = "Đưa tiền vào khung ngắm"
                     self.resultLabel.textColor = .white
-                    self.debugLabel.text = "Đang tìm..."
                     self.backgroundCount = 0
                 }
                 return
             }
             
-            // Tìm thấy tiền -> Reset đếm background
             self.backgroundCount = 0
 
-            // 2. KIỂM TRA TÍNH LIÊN TIẾP
+            // Kiểm tra liên tiếp
             if id == self.candidateID {
-                // Nếu GIỐNG frame trước -> Cộng dồn
                 self.candidateCount += 1
-                self.candidateConfTotal += conf // Cộng điểm để tính trung bình
+                self.candidateConfTotal += conf // Cộng dồn: 0.8 + 0.9 + ...
             } else {
-                // Nếu KHÁC frame trước -> Reset, bắt đầu đếm lại từ số 1
                 self.candidateID = id
                 self.candidateCount = 1
-                self.candidateConfTotal = conf
+                self.candidateConfTotal = conf // Bắt đầu đếm lại
             }
             
-            // Debug cho dev xem
-            self.debugLabel.text = "Scan: \(self.moneyMapping[id] ?? id) | Giữ yên: \(self.candidateCount)/\(self.STABILITY_FRAMES_REQUIRED)"
+            // Cập nhật thanh loading
+            let progress = Float(self.candidateCount) / Float(self.STABILITY_FRAMES_REQUIRED)
+            self.stabilityProgressView.setProgress(progress, animated: true)
 
-            // 3. CHỐT KẾT QUẢ (Khi đủ 15 frames liên tiếp)
+            // KHI ĐỦ 15 FRAME -> TÍNH TRUNG BÌNH CỘNG
             if self.candidateCount >= self.STABILITY_FRAMES_REQUIRED {
                 
-                // Tính trung bình cộng độ tin cậy (FIX LỖI 800%)
+                // [ĐÂY LÀ CHỖ BẠN CẦN]: TỔNG / SỐ LƯỢNG
                 let averageConf = self.candidateConfTotal / Float(self.candidateCount)
                 
-                // Chỉ cập nhật nếu kết quả KHÁC với cái đang hiện trên màn hình
                 if id != self.currentStableID {
                     self.currentStableID = id
+                    // Gửi giá trị trung bình đi hiển thị
                     self.processFinalResult(id: id, conf: averageConf)
-                } else {
-                    // Nếu vẫn là tờ tiền cũ, chỉ cập nhật lại % cho chuẩn (nếu muốn)
-                    // self.updateConfidenceDisplay(conf: averageConf) 
                 }
                 
-                // Giữ bộ đếm ở mức max để tránh tràn số, nhưng vẫn giữ ID này là candidate
+                // Giữ trạng thái khóa nhưng vẫn cập nhật trung bình mới nhất nếu muốn
                 self.candidateCount = self.STABILITY_FRAMES_REQUIRED
-                // Reset total để tránh cộng dồn vô tận, giữ lại giá trị trung bình hiện tại
+                // Mẹo toán học: Reset tổng về mức trung bình để giữ ổn định cho frame tiếp theo
                 self.candidateConfTotal = averageConf * Float(self.STABILITY_FRAMES_REQUIRED)
+                
+                self.stabilityProgressView.progressTintColor = .systemCyan
+            } else {
+                self.stabilityProgressView.progressTintColor = .green
             }
         }
     }
@@ -275,25 +347,60 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     // --- 8. UI LAYOUT ---
     func setupUI() {
         view.addSubview(modelSelector)
-        view.addSubview(resultLabel)
+        view.addSubview(centerFocusView)
+        view.addSubview(resultContainerView)
+        view.addSubview(liveInfoLabel)
+        
+        resultContainerView.addSubview(resultLabel)
+        resultContainerView.addSubview(stabilityProgressView)
         view.addSubview(debugLabel)
         
         modelSelector.translatesAutoresizingMaskIntoConstraints = false
+        centerFocusView.translatesAutoresizingMaskIntoConstraints = false
+        resultContainerView.translatesAutoresizingMaskIntoConstraints = false
+        liveInfoLabel.translatesAutoresizingMaskIntoConstraints = false
         resultLabel.translatesAutoresizingMaskIntoConstraints = false
+        stabilityProgressView.translatesAutoresizingMaskIntoConstraints = false
         debugLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
+            // 1. Model Selector
             modelSelector.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             modelSelector.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            modelSelector.widthAnchor.constraint(equalToConstant: 320), // Tăng chiều rộng để chứa 3 nút
+            modelSelector.widthAnchor.constraint(equalToConstant: 320),
             
-            debugLabel.topAnchor.constraint(equalTo: modelSelector.bottomAnchor, constant: 10),
+            // 2. Debug Label
+            debugLabel.topAnchor.constraint(equalTo: modelSelector.bottomAnchor, constant: 8),
             debugLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
-            resultLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -50),
-            resultLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            resultLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            resultLabel.heightAnchor.constraint(equalToConstant: 120)
+            // 3. Center Focus View (SỬA LẠI KÍCH THƯỚC TẠI ĐÂY)
+            centerFocusView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            centerFocusView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -50), // Dịch lên một chút để tránh bị tay che
+            // Tăng chiều rộng lên 340 và chiều cao là 220 (hình chữ nhật ngang)
+            centerFocusView.widthAnchor.constraint(equalToConstant: 340),
+            centerFocusView.heightAnchor.constraint(equalToConstant: 450),
+            
+            // 4. Live Info Label
+            liveInfoLabel.bottomAnchor.constraint(equalTo: centerFocusView.topAnchor, constant: -10),
+            liveInfoLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            liveInfoLabel.heightAnchor.constraint(equalToConstant: 24),
+            
+            // 5. Result Container
+            resultContainerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
+            resultContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            resultContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            resultContainerView.heightAnchor.constraint(equalToConstant: 140),
+            
+            // 6. Bên trong Container
+            stabilityProgressView.topAnchor.constraint(equalTo: resultContainerView.topAnchor),
+            stabilityProgressView.leadingAnchor.constraint(equalTo: resultContainerView.leadingAnchor),
+            stabilityProgressView.trailingAnchor.constraint(equalTo: resultContainerView.trailingAnchor),
+            stabilityProgressView.heightAnchor.constraint(equalToConstant: 4),
+            
+            resultLabel.topAnchor.constraint(equalTo: stabilityProgressView.bottomAnchor, constant: 10),
+            resultLabel.leadingAnchor.constraint(equalTo: resultContainerView.leadingAnchor, constant: 10),
+            resultLabel.trailingAnchor.constraint(equalTo: resultContainerView.trailingAnchor, constant: -10),
+            resultLabel.bottomAnchor.constraint(equalTo: resultContainerView.bottomAnchor, constant: -10)
         ])
         
         modelSelector.addTarget(self, action: #selector(modelChanged), for: .valueChanged)
