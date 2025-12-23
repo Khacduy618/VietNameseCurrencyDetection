@@ -51,22 +51,20 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         return lbl
     }()
 
-    // --- 2. LOGIC XỬ LÝ ẢNH (FAST/SLOW PATH) ---
-    var frameBuffer: [(id: String, conf: Float)] = []
-    let maxBufferSize = 20
+    // Biến lưu trạng thái hiện tại
+    var candidateID: String? = nil        // Ứng cử viên đang xét
+    var candidateCount: Int = 0           // Số lần xuất hiện liên tiếp
+    var candidateConfTotal: Float = 0.0
+    var currentStableID: String? = nil    // Kết quả đã chốt (đang hiển thị)
     
-    // Fast Path: Đọc nhanh
-    let fastStreakRequired = 4
-    let fastConfidence: Float = 0.96
+    // Cấu hình độ khó (Tinh chỉnh ở đây)
+    // Tăng từ 6 lên 15 (khoảng 0.5 giây) để cực kỳ chắc chắn
+    let STABILITY_FRAMES_REQUIRED: Int = 15 
+    let CONFIDENCE_THRESHOLD: Float = 0.85 
     
-    // Slow Path: Bầu cử
-    let slowBatchSize = 15
-    let slowVoteRequired = 10
-    let slowConfidence: Float = 0.85
-    
-    // Trạng thái
-    var lastReadText: String = ""
-    var lastReadTime: Date = Date.distantPast
+    // Reset nếu gặp background quá lâu
+    var backgroundCount: Int = 0
+    let RESET_BG_FRAMES: Int = 20          // Đếm số lần gặp nền để reset
     
     // Mapping nhãn
     let moneyMapping: [String: String] = [
@@ -135,7 +133,14 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                     self.currentModelName = targetName
                     self.modelSelector.selectedSegmentIndex = index
                     self.debugLabel.text = "Model: \(targetName)"
-                    self.frameBuffer.removeAll()
+
+                    self.candidateID = nil
+                    self.candidateCount = 0
+                    self.currentStableID = nil
+                    self.backgroundCount = 0
+
+                    self.resultLabel.text = "Sẵn sàng..."
+                    self.resultLabel.textColor = .white
                     self.speak("Đã chuyển sang \(targetName)")
                 }
             } catch {
@@ -173,73 +178,85 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     func handleFrameResult(id: String, conf: Float) {
         DispatchQueue.main.async {
             
-            // Lọc rác
-            if id == "00_background" || conf < 0.7 {
-                self.frameBuffer.removeAll()
-                self.lastReadText = ""
-                self.resultLabel.text = "..."
-                self.resultLabel.textColor = .lightGray
-                self.debugLabel.text = "\(self.currentModelName) | Nền: \(Int(conf*100))%"
+            // 1. LỌC RÁC: Nếu tin cậy thấp hoặc là Background
+            if id == "00_background" || conf < self.CONFIDENCE_THRESHOLD {
+                // Reset ứng cử viên hiện tại
+                self.candidateID = nil
+                self.candidateCount = 0
+                self.candidateConfTotal = 0.0
+                
+                // Đếm background để reset màn hình
+                self.backgroundCount += 1
+                if self.backgroundCount > self.RESET_BG_FRAMES {
+                    self.currentStableID = nil
+                    self.resultLabel.text = "Sẵn sàng..."
+                    self.resultLabel.textColor = .white
+                    self.debugLabel.text = "Đang tìm..."
+                    self.backgroundCount = 0
+                }
                 return
             }
-
-            self.frameBuffer.append((id: id, conf: conf))
-            if self.frameBuffer.count > self.maxBufferSize { self.frameBuffer.removeFirst() }
             
-            self.debugLabel.text = "\(self.currentModelName) | Buf:\(self.frameBuffer.count) | \(id) \(Int(conf*100))%"
+            // Tìm thấy tiền -> Reset đếm background
+            self.backgroundCount = 0
 
-            // Fast Path
-            let recentFrames = self.frameBuffer.suffix(self.fastStreakRequired)
-            if recentFrames.count >= self.fastStreakRequired {
-                let allSameID = recentFrames.allSatisfy { $0.id == id }
-                let allHighConf = recentFrames.allSatisfy { $0.conf >= self.fastConfidence }
-                
-                if allSameID && allHighConf && id != "00_background" {
-                    print("🚀 Fast Path: \(id)")
-                    self.processFinalResult(id: id, conf: conf)
-                    self.frameBuffer.removeAll()
-                    return
-                }
+            // 2. KIỂM TRA TÍNH LIÊN TIẾP
+            if id == self.candidateID {
+                // Nếu GIỐNG frame trước -> Cộng dồn
+                self.candidateCount += 1
+                self.candidateConfTotal += conf // Cộng điểm để tính trung bình
+            } else {
+                // Nếu KHÁC frame trước -> Reset, bắt đầu đếm lại từ số 1
+                self.candidateID = id
+                self.candidateCount = 1
+                self.candidateConfTotal = conf
             }
             
-            // Slow Path
-            if self.frameBuffer.count >= self.slowBatchSize {
-                let counts = self.frameBuffer.reduce(into: [:]) { counts, item in
-                    counts[item.id, default: 0] += 1
+            // Debug cho dev xem
+            self.debugLabel.text = "Scan: \(self.moneyMapping[id] ?? id) | Giữ yên: \(self.candidateCount)/\(self.STABILITY_FRAMES_REQUIRED)"
+
+            // 3. CHỐT KẾT QUẢ (Khi đủ 15 frames liên tiếp)
+            if self.candidateCount >= self.STABILITY_FRAMES_REQUIRED {
+                
+                // Tính trung bình cộng độ tin cậy (FIX LỖI 800%)
+                let averageConf = self.candidateConfTotal / Float(self.candidateCount)
+                
+                // Chỉ cập nhật nếu kết quả KHÁC với cái đang hiện trên màn hình
+                if id != self.currentStableID {
+                    self.currentStableID = id
+                    self.processFinalResult(id: id, conf: averageConf)
+                } else {
+                    // Nếu vẫn là tờ tiền cũ, chỉ cập nhật lại % cho chuẩn (nếu muốn)
+                    // self.updateConfidenceDisplay(conf: averageConf) 
                 }
                 
-                if let (winnerID, voteCount) = counts.max(by: { $0.value < $1.value }) {
-                    let winnerFrames = self.frameBuffer.filter { $0.id == winnerID }
-                    let avgConf = winnerFrames.reduce(0) { $0 + $1.conf } / Float(winnerFrames.count)
-                    
-                    if winnerID != "00_background" && voteCount >= self.slowVoteRequired && avgConf > self.slowConfidence {
-                        print("🐢 Slow Path: \(winnerID)")
-                        self.processFinalResult(id: winnerID, conf: avgConf)
-                    }
-                }
-                self.frameBuffer.removeFirst(5)
+                // Giữ bộ đếm ở mức max để tránh tràn số, nhưng vẫn giữ ID này là candidate
+                self.candidateCount = self.STABILITY_FRAMES_REQUIRED
+                // Reset total để tránh cộng dồn vô tận, giữ lại giá trị trung bình hiện tại
+                self.candidateConfTotal = averageConf * Float(self.STABILITY_FRAMES_REQUIRED)
             }
         }
     }
-    
+
+
     // --- 6. XỬ LÝ KẾT QUẢ & ĐỌC ---
     func processFinalResult(id: String, conf: Float) {
-        if id == "00_background" { return }
-        
         guard let textToSpeak = moneyMapping[id] else { return }
         
-        let percent = Int(conf * 100)
-        resultLabel.text = "\(textToSpeak)\n(\(percent)%)"
-        resultLabel.textColor = .green
         
-        let now = Date()
-        if textToSpeak != lastReadText || now.timeIntervalSince(lastReadTime) > 3.0 {
-            speak(textToSpeak)
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
-            lastReadText = textToSpeak
-            lastReadTime = now
+        resultLabel.text = "\(textToSpeak)"
+        
+        // Màu sắc
+        if ["1k", "2k", "5k"].contains(id) {
+            resultLabel.textColor = .yellow
+        } else {
+            resultLabel.textColor = .green
         }
+        
+        // Rung & Đọc
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        speak(textToSpeak)
     }
     
     // --- 7. AUDIO SETUP ---
